@@ -101,10 +101,15 @@ button.issue:hover { background: var(--soft) }
 .chip { cursor: pointer }
 .chip text { font: 700 12px var(--display); text-anchor: middle; dominant-baseline: central; pointer-events: none }
 .chip:hover rect { stroke: #fff !important; stroke-width: 2 !important }
-@keyframes chipflash { 50% { opacity: .12 } }
-.chip.flash { animation: chipflash 1.1s steps(1) infinite }
+/* The marker stays solid while it flashes, so the size printed on the drawing never shows through */
+@keyframes chipflash-rect { 50% { fill: #0b0f12 } }
+@keyframes chipflash-text { 50% { fill: #ffffff } }
+@keyframes chipflash-swatch { 50% { background: #0b0f12 } }
+.chip.flash rect { animation: chipflash-rect 1.1s steps(1) infinite }
+.chip.flash text { animation: chipflash-text 1.1s steps(1) infinite }
+.swatch.flash { animation: chipflash-swatch 1.1s steps(1) infinite; outline: 1px solid var(--line) }
 @media (prefers-reduced-motion: reduce) {
-  .chip.flash { animation: none }
+  .chip.flash rect, .chip.flash text, .swatch.flash { animation: none }
   .chip.flash rect { stroke: #fff !important; stroke-width: 3 !important; stroke-dasharray: 4 2 !important }
 }
 .chip .dot { fill: #ff5a1f; stroke: #fff; stroke-width: .8 }
@@ -459,7 +464,7 @@ function paintMap() {
 }
 function drawLegend() {
   const swatch = (c, extra = '') => `<i class="swatch" style="background:${c};${extra}"></i>`;
-  $('legend').innerHTML = `<span>${swatch(VACANT_RED)}Vacant</span><span><i class="swatch" style="background:${VACANT_RED};animation:chipflash 1.1s steps(1) infinite"></i>In process</span>`
+  $('legend').innerHTML = `<span>${swatch(VACANT_RED)}Vacant</span><span><i class="swatch flash" style="background:${VACANT_RED}"></i>In process</span>`
     + groupsIn(ui.yard).map(g => `<span class="opt">${swatch(g.fill, 'outline:1px solid var(--line);')}${g.name}</span>`).join('')
     + `<span class="opt">${swatch('none', 'outline:1.5px dashed ' + VACANT_RED + ';')}Not in sheet</span><span class="opt">${swatch('#ff5a1f', 'border-radius:50%;')}Action note</span>`;
 }
