@@ -43,6 +43,7 @@ h1, .yards { flex: none; white-space: nowrap }
 #legend span { white-space: nowrap }
 .primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 600 }
 .ghost { background: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-weight: 500 }
+.also { padding: 2px 0 6px }
 .link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px }
 
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: 350px minmax(0, 1fr) }
@@ -267,11 +268,11 @@ const FLAGS = [
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const headKey = h => String(h ?? '').toLowerCase().replace(/[\s/_.\-]+/g, '');
-const spaceKey = v => String(v ?? '').toUpperCase().replace(/[\s\-_.]+/g, '').replace(/^(PL|[A-G])?0+(?=\d)/, '$1');
+const spaceKey = v => String(v ?? '').toUpperCase().replace(/\.0+\s*$/, '').replace(/[\s\-_.]+/g, '').replace(/^(PL|[A-G])?0+(?=\d)/, '$1');
 const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 const truthy = v => { const t = String(v ?? '').trim().toLowerCase(); return !!t && !['n', 'no', '0', 'false', '-', 'na', 'n/a'].includes(t); };
 const yardOf = (yardCell, spaceCell) => {
-  if (/west/i.test(String(yardCell ?? '')) || /^\s*(west|wl|w)[\s\-_.]*\d/i.test(String(spaceCell ?? ''))) return 'West Lot';
+  if (/west/i.test(String(yardCell ?? '')) || /^\s*(west\s*lot|west|wl|w)[\s\-_.]*\d/i.test(String(spaceCell ?? ''))) return 'West Lot';
   if (/harbor|harbour|dock|main/i.test(String(yardCell ?? '')) || /^\s*[A-G][\s\-_.]*\d+\s*$/i.test(String(spaceCell ?? ''))) return 'Harbor';
   return 'SBY';
 };
@@ -294,7 +295,7 @@ function readSheet(aoa, spaceColumn) {
     if (!raw.some(c => String(c ?? '').trim())) continue;
     const r = {}; for (const f in col) r[f] = col[f] < 0 ? '' : String(raw[col[f]] ?? '').trim();
     r.yard = yardOf(r.yard, r.space); r.spaceRaw = r.space; r.key = spaceKey(stripYard(r.space));
-    r.isVacant = r.member.replace(/\.0+$/, '') === VACANT_ID; r.isOpt = truthy(r.optOut); r.isLive = truthy(r.live);
+    r.isVacant = r.member.replace(/,/g, '').replace(/\.0+$/, '') === VACANT_ID; r.isOpt = truthy(r.optOut); r.isLive = truthy(r.live);
     if (!r.member && !r.space) continue;
     if (!r.key) { skipped.push(r); continue; }
     r.hay = [r.key, r.spaceRaw, r.member, r.attached, r.name, r.boat, r.boatType, r.doc, r.notes, r.partner, r.items, r.rental, r.email, r.textEmail, r.phone, r.isOpt ? 'opt out' : '', r.isLive ? 'live aboard' : '', r.isVacant ? 'vacant' : ''].join(' | ').toLowerCase();
@@ -321,17 +322,21 @@ function runChecks(m) {
     const live = s.rows.filter(r => !r.isVacant);
     if (live.length > 1) out.push({ bad: 1, kind: 'dup', s, title: `Space ${s.id} is listed for ${live.length} members`, sub: live.map(who).join(', ') });
     if (s.rows.length > 1 && live.length === 1) out.push({ kind: 'dup', s, title: `Space ${s.id} has both a boat and a vacant row`, sub: who(live[0]) });
+    for (const r of s.rows) if (!r.member) out.push({ bad: 1, kind: 'nomember', s, title: `Space ${s.id} has a row with no member #`, sub: who(r) });
     for (const r of s.rows) { const f = /(\d+)\s*(ft|foot|feet|')/i.exec(r.rental); if (f && s.ft && +f[1] !== s.ft) out.push({ kind: 'size', s, title: `Space ${s.id}: sheet says ${f[1]} ft, map says ${s.ft} ft`, sub: who(r) }); }
     if (s.status === 'none') out.push({ kind: 'none', s, title: `Space ${s.id} (${s.yard}) is not in the sheet`, sub: 'On the map, but no row points to it' });
   }
   return out;
 }
-const who = r => r.boat ? `${r.attached || r.name || 'Member ' + r.member}, ${r.boat}` : (r.attached || r.name || (r.isVacant ? 'Vacant' : 'Member ' + r.member));
+const who = r => r.boat ? `${r.attached || r.name || 'Member ' + r.member}, ${r.boat}` : (r.attached || r.name || (r.isVacant ? 'Vacant' : r.member ? 'Member ' + r.member : 'No member #'));
 function diffModels(a, b) {
   const out = [], label = rows => rows.length ? rows.map(who).join(', ') : 'nothing listed', key = rows => rows.map(r => r.member).sort().join();
   for (const s of b.spaces) {
     const o = a.index[s.yard + '|' + s.key]; if (!o) continue;
-    if (o.status !== 'vacant' && s.status === 'vacant') out.push({ kind: 'Vacated', s, text: `${label(o.rows)} left` });
+    if (o.status === 'none' || s.status === 'none') {
+      if (o.status !== s.status) out.push(s.status === 'none' ? { kind: 'Not in sheet', s, text: `${label(o.rows)} no longer listed` } : { kind: 'Added', s, text: label(s.rows) });
+    }
+    else if (o.status !== 'vacant' && s.status === 'vacant') out.push({ kind: 'Vacated', s, text: `${label(o.rows)} left` });
     else if (o.status === 'vacant' && s.status === 'occupied') out.push({ kind: 'Filled', s, text: label(s.rows) });
     else if (key(o.rows) !== key(s.rows)) out.push({ kind: 'New member', s, text: `${label(o.rows)} → ${label(s.rows)}` });
     else {
@@ -345,21 +350,21 @@ function diffModels(a, b) {
 }
 
 // ---------- State ----------
-const ui = { yard: 'Harbor', q: '', flags: new Set(), sizes: new Set(), colorBy: 'status', tab: 'find', fit: null, vacGroup: null, sel: null };
+const ui = { yard: 'Harbor', q: '', flag: null, size: null, colorBy: 'status', tab: 'find', fit: null, vacGroup: null, sel: null };
 const SAMPLE_DATA = { aoa: SAMPLE, file: null, when: null, report: null, spaceColumn: null };
 let data = SAMPLE_DATA;
 let model = null, checks = [];
-try { const saved = JSON.parse(localStorage.getItem(STORE) || 'null'); if (saved && saved.aoa) data = saved; } catch (e) {}
+try { const saved = JSON.parse(localStorage.getItem(STORE) || 'null'); if (saved && Array.isArray(saved.aoa) && saved.aoa.every(Array.isArray)) data = saved; } catch (e) {}
 function loadModel() {
   const sheet = readSheet(data.aoa, data.spaceColumn);
   model = buildModel(sheet.rows ? sheet : { rows: [], skipped: [] });
   checks = runChecks(model);
 }
-const persist = () => { try { data.file ? localStorage.setItem(STORE, JSON.stringify(data)) : localStorage.removeItem(STORE); } catch (e) {} };
+const persist = () => { try { data.file ? localStorage.setItem(STORE, JSON.stringify(data)) : localStorage.removeItem(STORE); return true; } catch (e) { return false; } };
 
 function matchesFlags(s) {
-  for (const f of FLAGS) if (ui.flags.has(f[0]) && !f[2](s)) return false;
-  return !(ui.sizes.size && !ui.sizes.has(s.group));
+  const f = FLAGS.find(x => x[0] === ui.flag);
+  return (!f || f[2](s)) && (!ui.size || s.group === ui.size);
 }
 function matchesQuery(s) {
   const terms = ui.q.toLowerCase().split(/\s+/).filter(Boolean); if (!terms.length) return true;
@@ -368,14 +373,14 @@ function matchesQuery(s) {
 }
 // Vacant spaces a boat might fit. West Lot sizes are not on file, so those stay in as "check by hand".
 const mightFit = s => s.status === 'vacant' && (ui.fit == null || s.ft == null || s.ft >= ui.fit);
-const findingVacancies = () => ui.flags.has('vacant') || /\bvacant\b/i.test(ui.q);
+const findingVacancies = () => ui.flag === 'vacant' || /\bvacant\b/i.test(ui.q);
 const inGroup = s => !ui.vacGroup || s.group === ui.vacGroup;
-const filtering = () => ui.tab === 'vac' ? (ui.fit != null || !!ui.vacGroup) : ui.tab === 'find' && !!(ui.q.trim() || ui.flags.size || ui.sizes.size);
+const filtering = () => ui.tab === 'vac' ? (ui.fit != null || !!ui.vacGroup) : ui.tab === 'find' && !!(ui.q.trim() || ui.flag || ui.size);
 const matches = s => ui.tab === 'vac' ? mightFit(s) && inGroup(s) : matchesFlags(s) && matchesQuery(s) && (!findingVacancies() || inGroup(s));
 
 // ---------- Map ----------
 const NS = 'http://www.w3.org/2000/svg', svg = $('map'), group = $('chips');
-let vb = { x: 0, y: 0, w: 1, h: 1 }, chipEls = {};
+let vb = { x: 0, y: 0, w: 1, h: 1 }, chipEls = {}, flight = 0;
 const applyVB = () => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
 function clampVB() {
   const d = YARDS[ui.yard];
@@ -383,11 +388,12 @@ function clampVB() {
   vb.x = Math.min(Math.max(vb.x, 0), d.w - vb.w); vb.y = Math.min(Math.max(vb.y, 0), d.h - vb.h);
   applyVB();
 }
-function fitVB() { const d = YARDS[ui.yard]; vb = { x: 0, y: 0, w: d.w, h: d.h }; applyVB(); }
+function fitVB() { flight++; const d = YARDS[ui.yard]; vb = { x: 0, y: 0, w: d.w, h: d.h }; applyVB(); }
 const yardSpaces = () => model.spaces.filter(s => s.yard === ui.yard);
 const pxScale = () => { const r = svg.getBoundingClientRect(); return Math.min(r.width / vb.w, r.height / vb.h); };
 const toSvg = (cx, cy) => new DOMPoint(cx, cy).matrixTransform(svg.getScreenCTM().inverse());
 function zoomAt(f, cx, cy) {
+  flight++;
   const r = svg.getBoundingClientRect(); if (cx == null) { cx = r.left + r.width / 2; cy = r.top + r.height / 2; }
   const p = toSvg(cx, cy), w0 = vb.w, h0 = vb.h, d = YARDS[ui.yard];
   vb.w = Math.min(Math.max(vb.w * f, d.w / 14), d.w); vb.h = vb.w * d.h / d.w;
@@ -397,8 +403,9 @@ function zoomAt(f, cx, cy) {
 function flyTo(s) {
   const d = YARDS[s.yard], target = { w: Math.min(vb.w, d.w / 3.2) }; target.h = target.w * d.h / d.w;
   target.x = s.x - target.w / 2; target.y = s.y - target.h / 2;
-  const from = { ...vb }, t0 = performance.now(), ms = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
+  const id = ++flight, from = { ...vb }, t0 = performance.now(), ms = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
   (function step(t) {
+    if (id !== flight) return;
     const k = ms ? Math.min((t - t0) / ms, 1) : 1, e = 1 - (1 - k) ** 3;
     for (const f of ['x', 'y', 'w', 'h']) vb[f] = from[f] + (target[f] - from[f]) * e;
     clampVB(); if (k < 1) requestAnimationFrame(step);
@@ -462,11 +469,12 @@ $('colorby').addEventListener('click', e => { const c = e.target.closest('[data-
 const pointers = new Map(); let gesture = null, lastPinch = null;
 const spaceFromTarget = t => { const g = t.closest && t.closest('.chip'); return g ? model.index[ui.yard + '|' + g.dataset.key] : null; };
 svg.addEventListener('pointerdown', e => {
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  flight++; pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   gesture = { sx: e.clientX, sy: e.clientY, vx: vb.x, vy: vb.y, moved: pointers.size > 1, space: spaceFromTarget(e.target) };
   lastPinch = null; svg.setPointerCapture(e.pointerId); hideTip();
 });
 svg.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse' && !e.buttons && pointers.has(e.pointerId)) endPointer(e); // the release was lost, e.g. to a context menu
   if (!pointers.has(e.pointerId)) { if (e.pointerType === 'mouse') showTipFor(spaceFromTarget(e.target), e); return; }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
@@ -502,7 +510,7 @@ function showTipFor(s, e) {
     tip.dataset.key = s.yard + s.key;
     const parts = s.rows.filter(r => !r.isVacant).map(r => {
       const flags = [r.isOpt && 'Opt out', r.isLive && 'Live aboard'].filter(Boolean);
-      return `<div class="kv"><i>Members</i>${esc(r.attached || r.name || r.member)}</div>
+      return `<div class="kv"><i>Members</i>${esc(r.attached || r.name || r.member || 'No member #')}</div>
         ${r.boat || r.boatType ? `<div class="kv"><i>Boat</i>${esc([r.boat, r.boatType].filter(Boolean).join(' · '))}</div>` : ''}
         ${r.partner ? `<div class="kv"><i>Partnership with</i>${esc(r.partner)}</div>` : ''}
         ${r.notes ? `<div class="kv"><i>Action notes</i>${esc(r.notes)}</div>` : ''}
@@ -547,25 +555,28 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 
 // ---------- Panels ----------
 function setYard(y) {
-  ui.yard = y; ui.sizes.clear();
-  renderYardButtons(); drawLegend(); drawYard(); renderChips(); renderResults();
+  ui.yard = y; ui.size = null;
+  if (ui.vacGroup && SIZES[ui.vacGroup].yard !== y) ui.vacGroup = null;
+  renderYardButtons(); drawLegend(); drawYard(); renderChips(); renderResults(); renderVac();
 }
 function renderYardButtons() {
   $('yards').innerHTML = YARD_TABS.map(k => `<button data-y="${esc(k)}" aria-pressed="${k === ui.yard}">${esc(YARDS[k].label)}</button>`).join('');
 }
-$('yards').addEventListener('click', e => {
+const pickYard = e => {
   const b = e.target.closest('[data-y]'); if (!b) return;
   ui.sel = null; setYard(b.dataset.y); renderDetail();
-});
+};
+$('yards').addEventListener('click', pickYard);
+$('results').addEventListener('click', pickYard);
 function renderChips() {
-  const count = fn => model.spaces.filter(fn).length;
-  $('flagChips').innerHTML = FLAGS.map(f => `<button class="fchip" data-f="${f[0]}" aria-pressed="${ui.flags.has(f[0])}">${f[1]}<b>${count(f[2])}</b></button>`).join('');
-  $('sizeChips').innerHTML = groupsIn(ui.yard).map(g => `<button class="fchip" data-z="${g.k}" aria-pressed="${ui.sizes.has(g.k)}">${g.name}<b>${count(s => s.group === g.k)}</b></button>`).join('');
+  const count = fn => yardSpaces().filter(fn).length;
+  $('flagChips').innerHTML = FLAGS.map(f => `<button class="fchip" data-f="${f[0]}" aria-pressed="${ui.flag === f[0]}">${f[1]}<b>${count(f[2])}</b></button>`).join('');
+  $('sizeChips').innerHTML = groupsIn(ui.yard).map(g => `<button class="fchip" data-z="${g.k}" aria-pressed="${ui.size === g.k}">${g.name}<b>${count(s => s.group === g.k)}</b></button>`).join('');
 }
-$('flagChips').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (!b) return; const f = b.dataset.f; ui.flags.has(f) ? ui.flags.delete(f) : ui.flags.add(f); refreshFind(); });
-$('sizeChips').addEventListener('click', e => { const b = e.target.closest('[data-z]'); if (!b) return; const z = b.dataset.z; ui.sizes.has(z) ? ui.sizes.delete(z) : ui.sizes.add(z); refreshFind(); });
+$('flagChips').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (!b) return; ui.flag = ui.flag === b.dataset.f ? null : b.dataset.f; refreshFind(); });
+$('sizeChips').addEventListener('click', e => { const b = e.target.closest('[data-z]'); if (!b) return; ui.size = ui.size === b.dataset.z ? null : b.dataset.z; refreshFind(); });
 $('q').addEventListener('input', e => { ui.q = e.target.value; if (!findingVacancies()) ui.vacGroup = null; renderResults(); paintMap(); });
-$('clear').onclick = () => { ui.q = ''; $('q').value = ''; ui.flags.clear(); ui.sizes.clear(); refreshFind(); };
+$('clear').onclick = () => { ui.q = ''; $('q').value = ''; ui.flag = ui.size = null; refreshFind(); };
 function refreshFind() { if (!findingVacancies()) ui.vacGroup = null; renderChips(); renderResults(); paintMap(); }
 // Vacant spaces as one collapsible group per space size
 function groupsHtml(list) {
@@ -589,16 +600,16 @@ document.addEventListener('click', e => {
   paintMap();
 });
 function hl(text) {
-  let out = esc(text);
-  for (const t of ui.q.trim().split(/\s+/).filter(Boolean)) out = out.replace(new RegExp(esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), m => `<mark>${m}</mark>`);
-  return out;
+  const terms = ui.q.trim().split(/\s+/).filter(Boolean).sort((a, b) => b.length - a.length).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!terms.length) return esc(text);
+  return String(text ?? '').split(new RegExp(`(${terms.join('|')})`, 'ig')).map((part, i) => i % 2 ? `<mark>${esc(part)}</mark>` : esc(part)).join('');
 }
 function resultItem(s) {
   const live = s.rows.filter(r => !r.isVacant), r = live[0];
   const flags = []; for (const x of s.rows) { if (x.isOpt) flags.push('Opt out'); if (x.isLive) flags.push('Live aboard'); if (x.partner) flags.push('Partnership'); }
   const hidden = ui.q.trim() ? live.flatMap(x => [['Partnership with', x.partner], ['Email', x.email], ['Phone', x.phone], ['CF/Doc #', x.doc], ['Member #', x.member]]).filter(([, v]) => v && ui.q.toLowerCase().split(/\s+/).filter(Boolean).some(t => String(v).toLowerCase().includes(t))) : [];
   return `<li><button class="res" data-k="${esc(s.yard + '|' + s.key)}"><span class="tag ${s.status}">${esc(s.id)}</span><span>
-    <strong>${r ? hl(r.attached || r.name || r.member) : (s.status === 'vacant' ? 'Vacant' : 'Not in the sheet')}</strong>
+    <strong>${r ? hl(r.attached || r.name || r.member || 'No member #') : (s.status === 'vacant' ? 'Vacant' : 'Not in the sheet')}</strong>
     <small>${r ? hl([r.boat, r.boatType].filter(Boolean).join(' · ')) + (r.boat || r.boatType ? ' · ' : '') : ''}${esc(sizeText(s))}</small>
     ${hidden.slice(0, 1).map(([l, v]) => `<small>${l}: ${hl(v)}</small>`).join('')}
     ${r && r.notes ? `<small class="flag note">${hl(r.notes)}</small>` : ''}
@@ -606,11 +617,18 @@ function resultItem(s) {
   </span></button></li>`;
 }
 function renderResults() {
-  const active = !!(ui.q.trim() || ui.flags.size || ui.sizes.size);
+  const active = !!(ui.q.trim() || ui.flag || ui.size);
   $('clear').hidden = !active;
-  const list = model.spaces.filter(s => matchesFlags(s) && matchesQuery(s)).sort((a, b) => (a.yard === ui.yard ? 0 : 1) - (b.yard === ui.yard ? 0 : 1) || a.yard.localeCompare(b.yard) || natural(a.id, b.id));
+  const hit = s => matchesFlags(s) && matchesQuery(s);
+  const list = yardSpaces().filter(hit).sort((a, b) => natural(a.id, b.id));
+  if (ui.tab === 'find' && ui.vacGroup && !list.some(s => s.group === ui.vacGroup)) ui.vacGroup = null;
+  // A search still points to matches on the other maps
+  const elsewhere = ui.q.trim() ? YARD_TABS.filter(y => y !== ui.yard).map(y => {
+    const n = model.spaces.filter(s => s.yard === y && hit(s)).length;
+    return n ? `<li class="also"><button class="link" data-y="${esc(y)}">${n} more on ${esc(YARDS[y].label)}</button></li>` : '';
+  }).join('') : '';
   $('resCount').textContent = active ? `${list.length} ${list.length === 1 ? 'space' : 'spaces'} match` : `All ${list.length} spaces`;
-  $('results').innerHTML = (findingVacancies() ? groupsHtml(list) : list.map(resultItem).join('')) || `<li class="empty">No spaces match. Try fewer filters or a shorter search.</li>`;
+  $('results').innerHTML = elsewhere + ((findingVacancies() ? groupsHtml(list) : list.map(resultItem).join('')) || `<li class="empty">No spaces match. Try fewer filters or a shorter search.</li>`);
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-k]'); if (!b) return;
@@ -651,7 +669,7 @@ function renderSummary() {
     ${missing ? `<p class="note">${missing} ${missing === 1 ? 'space is' : 'spaces are'} not in the sheet, so occupied and vacant may not add up to the total. See the Checks tab.</p>` : ''}`;
 }
 function renderChecks() {
-  const order = ['unknown', 'blank', 'dup', 'size', 'none'], heads = { unknown: 'Spaces not on the map', blank: 'Rows with no space', dup: 'Spaces listed twice', size: 'Sizes that disagree', none: 'Map spaces missing from the sheet' };
+  const order = ['unknown', 'blank', 'nomember', 'dup', 'size', 'none'], heads = { unknown: 'Spaces not on the map', blank: 'Rows with no space', nomember: 'Rows with no member #', dup: 'Spaces listed twice', size: 'Sizes that disagree', none: 'Map spaces missing from the sheet' };
   const serious = checks.filter(c => c.kind !== 'none').length;
   $('chkCount').hidden = !serious; $('chkCount').textContent = serious;
   const issue = c => c.s ? `<button class="issue ${c.bad ? 'bad' : ''}" data-k="${esc(c.s.yard + '|' + c.s.key)}">${esc(c.title)}<small>${esc(c.sub || '')}</small></button>` : `<div class="issue ${c.bad ? 'bad' : ''}">${esc(c.title)}<small>${esc(c.sub || '')}</small></div>`;
@@ -712,7 +730,9 @@ async function handleFile(file) {
     aoa = sheets.filter(a => findHeader(a) >= 0).sort((a, b) => b.length - a.length)[0];
   } catch (err) { return openUpload(`"${file.name}" could not be read. Save it as .xlsx or .csv and try again.`); }
   if (!aoa) return openUpload(`"${file.name}" has no sheet with a "member #" column. Check that it is the slip spreadsheet.`);
-  reviewSheet(aoa, file.name, data.spaceColumn);
+  const heads = aoa[findHeader(aoa)].map(headKey);
+  const chosen = data.spaceColumn == null ? -1 : heads.indexOf(headKey(data.aoa[findHeader(data.aoa)][data.spaceColumn]));
+  reviewSheet(aoa, file.name, !heads.some(h => COLUMNS.space.includes(h)) && chosen >= 0 ? chosen : null);
 }
 function reviewSheet(aoa, name, spaceColumn) {
   const sheet = readSheet(aoa, spaceColumn);
@@ -739,7 +759,8 @@ function reviewSheet(aoa, name, spaceColumn) {
   $('mcancel').onclick = closeModal;
   $('mapply').onclick = () => {
     data = { aoa, file: name, when: Date.now(), spaceColumn, report: { file: name, items: changes.map(c => ({ kind: c.kind, id: c.s.id, k: c.s.yard + '|' + c.s.key, text: c.text })) } };
-    persist(); closeModal(); renderAll(); toast(changes.length ? `Map updated: ${changes.length} ${changes.length === 1 ? 'change' : 'changes'}` : 'Map updated: no changes');
+    const saved = persist(); closeModal(); renderAll();
+    toast((changes.length ? `Map updated: ${changes.length} ${changes.length === 1 ? 'change' : 'changes'}` : 'Map updated: no changes') + (saved ? '' : '. It could not be saved, so it will be gone after a reload.'));
   };
 }
 
