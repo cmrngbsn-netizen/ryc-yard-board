@@ -1,5 +1,5 @@
 # RYC Yard Board
 
-Trial version of a map of Richmond Yacht Club's harbor and boatyards, driven by the harbor master's slip spreadsheet.
+Trial version of a map of Richmond Yacht Club's harbor, boatyards and lockers, driven by the harbor master's rental spreadsheet.
 
 All names, boats and contact details on this site are made up. It holds no member data.
