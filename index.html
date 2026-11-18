@@ -321,12 +321,14 @@ function readSheet(aoa, spaceColumn) {
   const listCol = heads.indexOf('membernumber'), ceIdCol = heads.indexOf('attachedmembersid'), descCol = heads.indexOf('description');
   const contactCol = listCol >= 0 && listCol !== col.member ? Object.fromEntries(Object.entries(CONTACT_FIELDS).map(([f, c]) => [f, within(COLUMNS[c], listCol, heads.length)])) : null;
   const ceCol = ceIdCol >= 0 && descCol >= 0 ? Object.fromEntries(CE_FIELDS.map(f => [f, within(COLUMNS[f], ceIdCol, listCol > ceIdCol ? listCol : heads.length)])) : null;
+  // CE often adds words after the ID ("R-097 El Toro Shed", "HBR-A11ET - Mark asked..."), and some IDs hold a space
+  // ("R-PB A1"), so a Description names the first one or two words
+  const descIds = raw => { const w = cell(raw, descCol).toUpperCase().split(/\s+/); return w[0] ? [w[0], w[0] + ' ' + w[1]] : []; };
   const contacts = {}, ceRows = {};
   for (const raw of aoa.slice(h + 1)) {
     const id = contactCol ? memberId(raw[listCol]) : '';
     if (id) contacts[id] = Object.fromEntries(Object.keys(CONTACT_FIELDS).map(f => [f, cell(raw, contactCol[f])]));
-    const desc = ceCol ? cell(raw, descCol).toUpperCase() : '';
-    if (desc) ceRows[desc] = raw;
+    if (ceCol) for (const d of descIds(raw)) ceRows[d] = raw;
   }
   const rows = [], skipped = []; let offMap = 0;
   for (const raw of aoa.slice(h + 1)) {
@@ -338,7 +340,7 @@ function readSheet(aoa, spaceColumn) {
     if (r.yard === 'Harbor') r.key = r.key.replace(/ET$/, ''); // end ties are written A11ET
     r.attached = r.attached.replace(/\s*\(\s*\)$/, ''); // club accounts are written "RYC ()"
     // The row's own CE values when they line up (so two rows for one space each keep theirs), else the space's CE row
-    const id = memberId(r.member), sid = r.spaceRaw.toUpperCase(), ce = ceCol && (cell(raw, descCol).toUpperCase() === sid ? raw : ceRows[sid]);
+    const id = memberId(r.member), sid = r.spaceRaw.toUpperCase().replace(/\s+/g, ' '), ce = ceCol && (descIds(raw).includes(sid) ? raw : ceRows[sid]);
     if (ceCol) for (const f of CE_FIELDS) if (ceCol[f] >= 0) r[f] = ce ? cell(ce, ceCol[f]) : '';
     if (contactCol) Object.assign(r, contacts[ce ? memberId(ce[ceIdCol]) : ''] || contacts[id] || Object.fromEntries(Object.keys(CONTACT_FIELDS).map(f => [f, ''])));
     r.isVacant = id === VACANT_ID; r.isClub = isClubId(id); r.isOpt = truthy(r.optOut); r.isLive = truthy(r.live); r.isProcess = id === PROCESS_ID || truthy(r.inProcess);
