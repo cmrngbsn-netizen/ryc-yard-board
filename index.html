@@ -168,7 +168,10 @@ button.issue:hover { background: var(--soft) }
   header { gap: 4px 8px } .yards button { padding: 4px 8px } .primary { padding: 6px 10px }
   #openUpload { order: 1 }
   #yards { order: 0 }
-  #legend { order: 3; flex: 1 1 0; font-size: 12px } #legend .opt { display: none }
+  /* The whole key on one line that swipes sideways, fading at the edge to show there is more */
+  #legend { order: 3; flex: 1 1 0; font-size: 12px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-right: 18px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent) }
+  #legend::-webkit-scrollbar { display: none }
   .stamp { order: 4; font-size: 12px; max-width: 100% }
   main { display: flex; flex-direction: column }
   #mapwrap { order: -1; flex: 0 0 44%; }
@@ -525,6 +528,7 @@ function drawLegend() {
     + groupsIn(ui.yard).map(g => `<span class="opt">${swatch(g.fill, 'outline:1px solid var(--line);')}${g.legend || g.name}</span>`).join('')
     + (isStorage(ui.yard) ? `<span class="opt">${swatch(CLUB_COLOR)}Club held</span>` : '')
     + `<span class="opt">${swatch('none', 'outline:1.5px dashed ' + VACANT_RED + ';')}Not in sheet</span><span class="opt">${swatch('#ff5a1f', 'border-radius:50%;')}Note</span>`;
+  $('legend').scrollLeft = 0;
 }
 
 const pointers = new Map(); let gesture = null, lastPinch = null;
